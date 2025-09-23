@@ -41,8 +41,8 @@ app.get("/gamepasses/:userId", async (req, res) => {
   const { userId } = req.params;
 
   try {
-    // Step 1: Fetch ALL games owned by user
-    const gamesUrl = `https://games.roblox.com/v2/users/${userId}/games?limit=50`;
+    // Step 1: Fetch ALL games owned by user (using roproxy)
+    const gamesUrl = `https://games.roproxy.com/v2/users/${userId}/games?limit=50`;
     const games = await fetchAllPages(gamesUrl);
 
     if (games.length === 0) {
@@ -51,10 +51,10 @@ app.get("/gamepasses/:userId", async (req, res) => {
 
     let passes = [];
 
-    // Step 2: For each game, fetch ALL its passes
+    // Step 2: For each game, fetch ALL its passes (using roproxy)
     for (const game of games) {
       const gameId = game.id;
-      const passesUrl = `https://games.roblox.com/v1/games/${gameId}/game-passes?limit=50`;
+      const passesUrl = `https://games.roproxy.com/v1/games/${gameId}/game-passes?limit=50`;
       const gamePasses = await fetchAllPages(passesUrl);
 
       if (gamePasses.length > 0) {
