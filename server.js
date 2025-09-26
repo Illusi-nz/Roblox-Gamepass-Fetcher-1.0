@@ -5,7 +5,7 @@ const app = express();
 const PORT = 3000;
 
 /**
- * Helper: fetch all pages of Roblox API results
+ * Fetch all pages of Roblox API results
  */
 async function fetchAllPages(url) {
   let results = [];
@@ -15,16 +15,12 @@ async function fetchAllPages(url) {
     const fullUrl = cursor ? `${url}&cursor=${cursor}` : url;
     const res = await fetch(fullUrl);
 
-    if (!res.ok) {
-      console.error(`❌ Failed request: ${res.status} ${res.statusText}`);
-      break;
-    }
-
+    if (!res.ok) break;
     const data = await res.json();
+
     if (data.data) {
       results = results.concat(data.data);
     }
-
     cursor = data.nextPageCursor || null;
   } while (cursor);
 
@@ -32,10 +28,10 @@ async function fetchAllPages(url) {
 }
 
 /**
- * Helper: fetch description + price for a single pass
+ * Fetch description + price for a single pass
  */
 async function fetchPassDetails(passId) {
-  const url = `https://api.roproxy.com/marketplace/productinfo?assetId=${passId}`;
+  const url = `https://economy.roproxy.com/v2/assets/${passId}/details`;
   try {
     const res = await fetch(url);
     if (!res.ok) return { description: null, price: null };
@@ -51,7 +47,7 @@ async function fetchPassDetails(passId) {
   }
 }
 
-// ✅ Root test route
+// ✅ Root route
 app.get("/", (req, res) => {
   res.send("✅ Server is running! Use /gamepasses/:userId to fetch ALL gamepasses.");
 });
@@ -61,7 +57,7 @@ app.get("/gamepasses/:userId", async (req, res) => {
   const { userId } = req.params;
 
   try {
-    // Step 1: Fetch ALL games
+    // 1. Get all games
     const gamesUrl = `https://games.roproxy.com/v2/users/${userId}/games?limit=50`;
     const games = await fetchAllPages(gamesUrl);
 
@@ -71,13 +67,12 @@ app.get("/gamepasses/:userId", async (req, res) => {
 
     let passes = [];
 
-    // Step 2: For each game, fetch passes
+    // 2. For each game, fetch passes
     for (const game of games) {
-      const gameId = game.id;
-      const passesUrl = `https://games.roproxy.com/v1/games/${gameId}/game-passes?limit=50`;
+      const passesUrl = `https://games.roproxy.com/v1/games/${game.id}/game-passes?limit=50`;
       const gamePasses = await fetchAllPages(passesUrl);
 
-      // Step 3: Fetch details in parallel
+      // 3. Fetch details in parallel
       const detailedPasses = await Promise.all(
         gamePasses.map(async (p) => {
           const details = await fetchPassDetails(p.id);
@@ -86,7 +81,7 @@ app.get("/gamepasses/:userId", async (req, res) => {
             name: p.name,
             description: details.description,
             price: details.price,
-            gameId,
+            gameId: game.id,
             gameName: game.name,
           };
         })
@@ -97,12 +92,11 @@ app.get("/gamepasses/:userId", async (req, res) => {
 
     res.json({ userId, passes });
   } catch (err) {
-    console.error("Server error:", err);
+    console.error(err);
     res.status(500).json({ error: "Something went wrong" });
   }
 });
 
-// ✅ Start server
-app.listen(PORT, () => {
-  console.log(`🚀 Server listening on http://localhost:${PORT}`);
-});
+app.listen(PORT, () =>
+  console.log(`🚀 Server listening on http://localhost:${PORT}`)
+);
