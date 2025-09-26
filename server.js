@@ -5,7 +5,7 @@ const app = express();
 const PORT = 3000;
 
 /**
- * Fetch all pages of Roblox API results
+ * Helper: fetch all pages of Roblox API results
  */
 async function fetchAllPages(url) {
   let results = [];
@@ -32,39 +32,51 @@ async function fetchAllPages(url) {
 }
 
 /**
- * Fetch gamepass details (safe: only gamepasses)
+ * Helper: batch fetch prices for many passes
  */
-async function fetchPassDetails(passId) {
-  const url = `https://games.roproxy.com/v1/game-passes/${passId}`;
+async function fetchPricesBatch(passIds) {
+  const url = "https://economy.roproxy.com/v2/assets/details";
   try {
-    const res = await fetch(url);
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ assetIds: passIds }),
+    });
+
     if (!res.ok) {
-      console.warn(`⚠️ Failed fetch for ${passId}: ${res.status}`);
-      return { description: "Not Found", price: "Not Found" };
+      console.error(`❌ Failed batch price fetch: ${res.status} ${res.statusText}`);
+      return {};
     }
 
     const data = await res.json();
-
-    // If it's not actually a gamepass or deleted
-    if (data.errors || !data.product) {
-      console.warn(`⚠️ ${passId} is not a valid gamepass`);
-      return { description: "Not Found", price: "Not Found" };
-    }
-
-    return {
-      description: data.description || "Not Found",
-      price:
-        data.product?.priceInRobux !== undefined
-          ? data.product.priceInRobux
-          : "Not Found",
-    };
+    const prices = {};
+    data.forEach((d) => {
+      prices[d.AssetId] = d.PriceInRobux ?? null;
+    });
+    return prices;
   } catch (err) {
-    console.error(`❌ Error fetching ${passId}:`, err);
-    return { description: "Not Found", price: "Not Found" };
+    console.error("❌ Error in batch price fetch:", err);
+    return {};
   }
 }
 
-// ✅ Root route
+/**
+ * Helper: fetch description for a single pass
+ */
+async function fetchDescription(passId) {
+  const url = `https://api.roproxy.com/marketplace/productinfo?assetId=${passId}`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.Description || null;
+  } catch (err) {
+    console.error(`❌ Error fetching description for ${passId}:`, err);
+    return null;
+  }
+}
+
+// ✅ Root test route
 app.get("/", (req, res) => {
   res.send("✅ Server is running! Use /gamepasses/:userId to fetch ALL gamepasses.");
 });
@@ -74,7 +86,7 @@ app.get("/gamepasses/:userId", async (req, res) => {
   const { userId } = req.params;
 
   try {
-    // 1. Get all games for user
+    // Step 1: Fetch ALL games owned by user
     const gamesUrl = `https://games.roproxy.com/v2/users/${userId}/games?limit=50`;
     const games = await fetchAllPages(gamesUrl);
 
@@ -84,30 +96,52 @@ app.get("/gamepasses/:userId", async (req, res) => {
 
     let passes = [];
 
-    // 2. For each game, fetch passes
+    // Step 2: For each game, fetch passes
     for (const game of games) {
-      const passesUrl = `https://games.roproxy.com/v1/games/${game.id}/game-passes?limit=50`;
+      const gameId = game.id;
+      const passesUrl = `https://games.roproxy.com/v1/games/${gameId}/game-passes?limit=50`;
       const gamePasses = await fetchAllPages(passesUrl);
 
-      // 3. Fetch details for each pass
-      const detailedPasses = await Promise.all(
-        gamePasses.map(async (p) => {
-          const details = await fetchPassDetails(p.id);
-          return {
+      if (gamePasses.length > 0) {
+        // Collect raw passes first
+        passes = passes.concat(
+          gamePasses.map((p) => ({
             id: p.id,
             name: p.name,
-            description: details.description,
-            price: details.price,
-            gameId: game.id,
+            gameId,
             gameName: game.name,
-          };
-        })
-      );
-
-      passes = passes.concat(detailedPasses);
+          }))
+        );
+      }
     }
 
-    res.json({ userId, passes });
+    // Step 3: Fetch prices in batches (50 at a time)
+    const prices = {};
+    for (let i = 0; i < passes.length; i += 50) {
+      const batchIds = passes.slice(i, i + 50).map((p) => p.id);
+      Object.assign(prices, await fetchPricesBatch(batchIds));
+    }
+
+    // Step 4: Fetch descriptions in parallel
+    const descriptions = await Promise.all(
+      passes.map(async (p) => ({
+        id: p.id,
+        description: await fetchDescription(p.id),
+      }))
+    );
+    const descMap = {};
+    descriptions.forEach((d) => {
+      descMap[d.id] = d.description;
+    });
+
+    // Step 5: Merge everything
+    const finalPasses = passes.map((p) => ({
+      ...p,
+      description: descMap[p.id] || null,
+      price: prices[p.id] ?? null,
+    }));
+
+    res.json({ userId, passes: finalPasses });
   } catch (err) {
     console.error("Server error:", err);
     res.status(500).json({ error: "Something went wrong" });
@@ -115,6 +149,6 @@ app.get("/gamepasses/:userId", async (req, res) => {
 });
 
 // ✅ Start server
-app.listen(PORT, () =>
-  console.log(`🚀 Server listening on http://localhost:${PORT}`)
-);
+app.listen(PORT, () => {
+  console.log(`🚀 Server listening on http://localhost:${PORT}`);
+});
