@@ -4,6 +4,8 @@ import fetch from "node-fetch";
 const app = express();
 const PORT = 3000;
 
+app.use(express.json()); // ✅ allow JSON POST bodies
+
 // -------------------------
 // Simple in-memory cache
 // -------------------------
@@ -87,6 +89,8 @@ app.get("/gamepasses/:userId", async (req, res) => {
         name: p.name,
         gameId: game.id,
         gameName: game.name,
+        description: null, // initially empty
+        price: null,       // initially empty
       }));
 
       passes = passes.concat(detailedPasses);
@@ -102,6 +106,30 @@ app.get("/gamepasses/:userId", async (req, res) => {
     console.error("Server error:", err);
     res.status(500).json({ error: "Something went wrong" });
   }
+});
+
+// -------------------------
+// Route: update pass info
+// -------------------------
+app.post("/update-pass", (req, res) => {
+  const { userId, passId, description, price } = req.body;
+
+  if (!userId || !passId) {
+    return res.status(400).json({ error: "Missing userId or passId" });
+  }
+
+  const cached = getCache(userId);
+  if (cached) {
+    const pass = cached.passes.find((p) => p.id === passId);
+    if (pass) {
+      if (description) pass.description = description;
+      if (price) pass.price = price;
+      setCache(userId, cached); // refresh TTL
+      console.log(`🔄 Updated cache for pass ${passId} of user ${userId}`);
+    }
+  }
+
+  res.json({ ok: true });
 });
 
 // -------------------------
