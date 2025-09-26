@@ -12,7 +12,7 @@ app.use(express.json({ limit: "2mb" }));
 // -------------------------
 const CACHE_FILE = "./cache.json";
 const cache = new Map();
-const CACHE_TTL = 10 * 60 * 1000; // 10 minutes in ms
+const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 
 function saveCacheToDisk() {
   const obj = {};
@@ -129,7 +129,8 @@ app.post("/update-passes", (req, res) => {
 
   const cached = getCache(userId);
   if (!cached) {
-    return res.status(404).json({ error: "No cached passes for this userId" });
+    // 🚫 Option 1: require GET first
+    return res.status(404).json({ error: "No cached passes for this userId — call GET first" });
   }
 
   const index = new Map(cached.passes.map((p) => [String(p.id), p]));
@@ -151,7 +152,7 @@ app.post("/update-passes", (req, res) => {
 });
 
 // -------------------------
-loadCacheFromDisk(); // ✅ load when server starts
+loadCacheFromDisk();
 app.listen(PORT, () =>
   console.log(`🚀 Server running at http://localhost:${PORT}`)
 );
