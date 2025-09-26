@@ -31,6 +31,29 @@ async function fetchAllPages(url) {
   return results;
 }
 
+/**
+ * Helper: fetch details (price + description) for a single pass
+ */
+async function fetchPassDetails(passId) {
+  const url = `https://api.roproxy.com/marketplace/productinfo?assetId=${passId}`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) {
+      console.error(`❌ Failed details for ${passId}: ${res.status} ${res.statusText}`);
+      return { description: null, price: null };
+    }
+
+    const data = await res.json();
+    return {
+      description: data.Description || null,
+      price: data.PriceInRobux ?? null,
+    };
+  } catch (err) {
+    console.error(`❌ Error fetching pass ${passId}:`, err);
+    return { description: null, price: null };
+  }
+}
+
 // ✅ Root test route
 app.get("/", (req, res) => {
   res.send("✅ Server is running! Use /gamepasses/:userId to fetch ALL gamepasses.");
@@ -41,7 +64,7 @@ app.get("/gamepasses/:userId", async (req, res) => {
   const { userId } = req.params;
 
   try {
-    // Step 1: Fetch ALL games owned by user (using roproxy)
+    // Step 1: Fetch *ALL* games owned by user (paginated)
     const gamesUrl = `https://games.roproxy.com/v2/users/${userId}/games?limit=50`;
     const games = await fetchAllPages(gamesUrl);
 
@@ -51,21 +74,28 @@ app.get("/gamepasses/:userId", async (req, res) => {
 
     let passes = [];
 
-    // Step 2: For each game, fetch ALL its passes (using roproxy)
+    // Step 2: For each game, fetch ALL its passes
     for (const game of games) {
       const gameId = game.id;
       const passesUrl = `https://games.roproxy.com/v1/games/${gameId}/game-passes?limit=50`;
       const gamePasses = await fetchAllPages(passesUrl);
 
-      if (gamePasses.length > 0) {
-        passes = passes.concat(
-          gamePasses.map((p) => ({
+      // Step 3: Fetch details in parallel
+      const detailedPasses = await Promise.all(
+        gamePasses.map(async (p) => {
+          const details = await fetchPassDetails(p.id);
+          return {
             id: p.id,
             name: p.name,
+            description: details.description,
+            price: details.price,
             gameId,
-          }))
-        );
-      }
+            gameName: game.name, // ✅ include game name for clarity
+          };
+        })
+      );
+
+      passes = passes.concat(detailedPasses);
     }
 
     res.json({ userId, passes });
