@@ -111,7 +111,7 @@ app.get("/gamepasses/:userId", async (req, res) => {
 // -------------------------
 // Route: update pass info
 // -------------------------
-app.post("/update-pass", (req, res) => {
+app.post("/update-passes", (req, res) => {
   const { userId, passes } = req.body;
 
   if (!userId || !Array.isArray(passes)) {
@@ -123,12 +123,12 @@ app.post("/update-pass", (req, res) => {
     for (const updated of passes) {
       const pass = cached.passes.find((p) => p.id === updated.id);
       if (pass) {
-        if (updated.description) pass.description = updated.description;
-        if (updated.price) pass.price = updated.price;
+        pass.description = updated.description || pass.description;
+        pass.price = updated.price ?? pass.price;
       }
     }
     setCache(userId, cached); // refresh TTL
-    console.log(`🔄 Updated ${passes.length} passes for user ${userId}`);
+    console.log(`🔄 Bulk update: ${passes.length} passes for user ${userId}`);
   }
 
   res.json({ ok: true });
