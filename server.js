@@ -1,29 +1,57 @@
 import express from "express";
 import fetch from "node-fetch";
+import fs from "fs";
 
 const app = express();
 const PORT = 3000;
 
-// ✅ allow large JSON bodies (bulk updates with many descriptions)
 app.use(express.json({ limit: "2mb" }));
 
 // -------------------------
-// Simple in-memory cache
+// Persistent cache
 // -------------------------
+const CACHE_FILE = "./cache.json";
 const cache = new Map();
-const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+const CACHE_TTL = 10 * 60 * 1000; // 10 minutes in ms
+
+function saveCacheToDisk() {
+  const obj = {};
+  for (const [k, v] of cache.entries()) {
+    obj[k] = v;
+  }
+  fs.writeFileSync(CACHE_FILE, JSON.stringify(obj, null, 2), "utf8");
+  console.log("💾 Cache saved to disk");
+}
+
+function loadCacheFromDisk() {
+  if (fs.existsSync(CACHE_FILE)) {
+    try {
+      const raw = fs.readFileSync(CACHE_FILE, "utf8");
+      const obj = JSON.parse(raw);
+      for (const [k, v] of Object.entries(obj)) {
+        cache.set(k, v);
+      }
+      console.log(`📂 Loaded ${cache.size} cache entries from disk`);
+    } catch (e) {
+      console.error("⚠️ Failed to load cache file:", e);
+    }
+  }
+}
 
 function setCache(key, value) {
-  cache.set(key, { value, expires: Date.now() + CACHE_TTL });
+  cache.set(key, { ...value, expires: Date.now() + CACHE_TTL });
+  saveCacheToDisk();
 }
+
 function getCache(key) {
   const c = cache.get(key);
   if (!c) return null;
   if (Date.now() > c.expires) {
     cache.delete(key);
+    saveCacheToDisk();
     return null;
   }
-  return c.value;
+  return c;
 }
 
 // -------------------------
@@ -52,7 +80,6 @@ async function fetchAllPages(url) {
 app.get("/gamepasses/:userId", async (req, res) => {
   const { userId } = req.params;
 
-  // cache hit?
   const cached = getCache(userId);
   if (cached) {
     console.log(`⚡ Cache hit for user ${userId} (passes: ${cached.passes.length})`);
@@ -74,7 +101,6 @@ app.get("/gamepasses/:userId", async (req, res) => {
           name: p.name,
           gameId: game.id,
           gameName: game.name,
-          // initially empty; Roblox client will enrich these:
           description: null,
           price: null,
         }))
@@ -93,7 +119,6 @@ app.get("/gamepasses/:userId", async (req, res) => {
 
 // -------------------------
 // POST: bulk enrich cache
-// body: { userId, passes: [{ id, description, price }, ...] }
 // -------------------------
 app.post("/update-passes", (req, res) => {
   const { userId, passes } = req.body || {};
@@ -104,12 +129,9 @@ app.post("/update-passes", (req, res) => {
 
   const cached = getCache(userId);
   if (!cached) {
-    // No base cache yet; accept but do nothing meaningful.
-    console.warn(`⚠️ No base cache for user ${userId}; update ignored`);
-    return res.json({ ok: true, updated: 0, total: 0 });
+    return res.status(404).json({ error: "No cached passes for this userId" });
   }
 
-  // Build quick lookup map by id (stringify to be safe)
   const index = new Map(cached.passes.map((p) => [String(p.id), p]));
   let updatedCount = 0;
 
@@ -117,19 +139,19 @@ app.post("/update-passes", (req, res) => {
     const pass = index.get(String(upd.id));
     if (!pass) continue;
 
-    // ✅ DO NOT use truthy checks; price 0 must be saved!
     if ("description" in upd) pass.description = upd.description;
     if ("price" in upd) pass.price = upd.price;
 
     updatedCount++;
   }
 
-  setCache(userId, cached); // refresh TTL
+  setCache(userId, cached);
   console.log(`🔄 Bulk update for user ${userId}: ${updatedCount} passes enriched`);
   res.json({ ok: true, updated: updatedCount, total: cached.passes.length });
 });
 
 // -------------------------
+loadCacheFromDisk(); // ✅ load when server starts
 app.listen(PORT, () =>
   console.log(`🚀 Server running at http://localhost:${PORT}`)
 );
