@@ -4,23 +4,46 @@ import fetch from "node-fetch";
 const app = express();
 const PORT = 3000;
 
-/**
- * Helper: fetch all pages of results
- */
+// -------------------------
+// Simple in-memory cache
+// -------------------------
+const cache = new Map();
+const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+
+function setCache(key, value) {
+  cache.set(key, { value, expires: Date.now() + CACHE_TTL });
+}
+
+function getCache(key) {
+  const cached = cache.get(key);
+  if (!cached) return null;
+  if (Date.now() > cached.expires) {
+    cache.delete(key); // expired
+    return null;
+  }
+  return cached.value;
+}
+
+// -------------------------
+// Helper: fetch all pages
+// -------------------------
 async function fetchAllPages(url) {
   let results = [];
   let cursor = null;
 
   do {
-    const fullUrl = cursor ? `${url}&cursor=${cursor}` : url;
+    const fullUrl = cursor ? `${url}&cursor=${encodeURIComponent(cursor)}` : url;
     const res = await fetch(fullUrl);
+
     if (!res.ok) {
       console.error(`❌ Failed request: ${res.status} ${res.statusText}`);
       break;
     }
 
     const data = await res.json();
-    if (data.data) results = results.concat(data.data);
+    if (data.data) {
+      results = results.concat(data.data);
+    }
 
     cursor = data.nextPageCursor || null;
   } while (cursor);
@@ -28,9 +51,18 @@ async function fetchAllPages(url) {
   return results;
 }
 
-// ✅ Main route: get ALL games + ALL passes for a user
+// -------------------------
+// Route: get ALL passes for user
+// -------------------------
 app.get("/gamepasses/:userId", async (req, res) => {
   const { userId } = req.params;
+
+  // ✅ Check cache
+  const cached = getCache(userId);
+  if (cached) {
+    console.log(`⚡ Cache hit for user ${userId}`);
+    return res.json(cached);
+  }
 
   try {
     // Step 1: Fetch ALL games owned by this user
@@ -38,7 +70,9 @@ app.get("/gamepasses/:userId", async (req, res) => {
     const games = await fetchAllPages(gamesUrl);
 
     if (games.length === 0) {
-      return res.json({ userId, passes: [] });
+      const result = { userId, passes: [] };
+      setCache(userId, result);
+      return res.json(result);
     }
 
     let passes = [];
@@ -48,29 +82,31 @@ app.get("/gamepasses/:userId", async (req, res) => {
       const passesUrl = `https://games.roproxy.com/v1/games/${game.id}/game-passes?limit=50`;
       const gamePasses = await fetchAllPages(passesUrl);
 
-      // Step 3: Fetch details for each pass in parallel
-      const detailedPasses = await Promise.all(
-        gamePasses.map(async (p) => {
-          return {
-            id: p.id,
-            name: p.name,
-            gameId: game.id,
-            gameName: game.name,
-          };
-        })
-      );
+      const detailedPasses = gamePasses.map((p) => ({
+        id: p.id,
+        name: p.name,
+        gameId: game.id,
+        gameName: game.name,
+      }));
 
       passes = passes.concat(detailedPasses);
     }
 
-    res.json({ userId, passes });
+    const result = { userId, passes };
+
+    // ✅ Save to cache
+    setCache(userId, result);
+
+    res.json(result);
   } catch (err) {
     console.error("Server error:", err);
     res.status(500).json({ error: "Something went wrong" });
   }
 });
 
-// ✅ Start server
+// -------------------------
+// Start server
+// -------------------------
 app.listen(PORT, () =>
   console.log(`🚀 Server running at http://localhost:${PORT}`)
 );
