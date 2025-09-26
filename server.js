@@ -32,7 +32,7 @@ async function fetchAllPages(url) {
 }
 
 /**
- * Fetch gamepass details (safe: only works for actual passes)
+ * Fetch gamepass details (safe: only gamepasses)
  */
 async function fetchPassDetails(passId) {
   const url = `https://games.roproxy.com/v1/game-passes/${passId}`;
@@ -40,24 +40,27 @@ async function fetchPassDetails(passId) {
     const res = await fetch(url);
     if (!res.ok) {
       console.warn(`⚠️ Failed fetch for ${passId}: ${res.status}`);
-      return { description: null, price: null };
+      return { description: "Not Found", price: "Not Found" };
     }
 
     const data = await res.json();
 
-    // "NotFound" or deleted passes
+    // If it's not actually a gamepass or deleted
     if (data.errors || !data.product) {
       console.warn(`⚠️ ${passId} is not a valid gamepass`);
-      return { description: null, price: null };
+      return { description: "Not Found", price: "Not Found" };
     }
 
     return {
-      description: data.description || null,
-      price: data.product?.priceInRobux ?? null,
+      description: data.description || "Not Found",
+      price:
+        data.product?.priceInRobux !== undefined
+          ? data.product.priceInRobux
+          : "Not Found",
     };
   } catch (err) {
     console.error(`❌ Error fetching ${passId}:`, err);
-    return { description: null, price: null };
+    return { description: "Not Found", price: "Not Found" };
   }
 }
 
@@ -81,7 +84,7 @@ app.get("/gamepasses/:userId", async (req, res) => {
 
     let passes = [];
 
-    // 2. For each game, fetch its passes
+    // 2. For each game, fetch passes
     for (const game of games) {
       const passesUrl = `https://games.roproxy.com/v1/games/${game.id}/game-passes?limit=50`;
       const gamePasses = await fetchAllPages(passesUrl);
