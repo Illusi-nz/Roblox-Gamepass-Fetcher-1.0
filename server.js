@@ -112,21 +112,23 @@ app.get("/gamepasses/:userId", async (req, res) => {
 // Route: update pass info
 // -------------------------
 app.post("/update-pass", (req, res) => {
-  const { userId, passId, description, price } = req.body;
+  const { userId, passes } = req.body;
 
-  if (!userId || !passId) {
-    return res.status(400).json({ error: "Missing userId or passId" });
+  if (!userId || !Array.isArray(passes)) {
+    return res.status(400).json({ error: "Missing userId or passes array" });
   }
 
   const cached = getCache(userId);
   if (cached) {
-    const pass = cached.passes.find((p) => p.id === passId);
-    if (pass) {
-      if (description) pass.description = description;
-      if (price) pass.price = price;
-      setCache(userId, cached); // refresh TTL
-      console.log(`🔄 Updated cache for pass ${passId} of user ${userId}`);
+    for (const updated of passes) {
+      const pass = cached.passes.find((p) => p.id === updated.id);
+      if (pass) {
+        if (updated.description) pass.description = updated.description;
+        if (updated.price) pass.price = updated.price;
+      }
     }
+    setCache(userId, cached); // refresh TTL
+    console.log(`🔄 Updated ${passes.length} passes for user ${userId}`);
   }
 
   res.json({ ok: true });
