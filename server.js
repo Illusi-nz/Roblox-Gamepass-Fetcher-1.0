@@ -103,6 +103,7 @@ app.get("/gamepasses/:userId", async (req, res) => {
           gameName: game.name,
           description: null,
           price: null,
+          image: null,
         }))
       );
     }
@@ -142,6 +143,7 @@ app.post("/update-passes", (req, res) => {
 
     if ("description" in upd) pass.description = upd.description;
     if ("price" in upd) pass.price = upd.price;
+    if ("image" in upd) pass.image = upd.image;
 
     updatedCount++;
   }
