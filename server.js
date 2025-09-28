@@ -12,7 +12,7 @@ app.use(express.json({ limit: "2mb" }));
 // -------------------------
 const CACHE_FILE = "./cache.json";
 const cache = new Map();
-const CACHE_TTL = 1 * 60 * 1000; // 1 minute
+const CACHE_TTL = 7 * 60 * 1000; // 7 minutes
 
 function saveCacheToDisk() {
   const obj = {};
