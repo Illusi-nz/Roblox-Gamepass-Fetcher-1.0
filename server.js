@@ -109,8 +109,14 @@ app.get("/gamepasses/:userId", async (req, res) => {
     }
 
     const result = { userId, passes };
-    setCache(userId, result);
-    console.log(`🗂️ Cached base data for user ${userId} (passes: ${passes.length})`);
+
+    if (passes.length > 0) {
+      setCache(userId, result);
+      console.log(`🗂️ Cached data for user ${userId} (passes: ${passes.length})`);
+    } else {
+      console.log(`🚫 User ${userId} has 0 passes — not caching`);
+    }
+
     res.json(result);
   } catch (err) {
     console.error("Server error:", err);
@@ -130,7 +136,6 @@ app.post("/update-passes", (req, res) => {
 
   const cached = getCache(userId);
   if (!cached) {
-    // 🚫 Option 1: require GET first
     return res.status(404).json({ error: "No cached passes for this userId — call GET first" });
   }
 
